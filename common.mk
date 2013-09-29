@@ -37,9 +37,7 @@ endif
 common_deps :=
 kernel_includes :=
 
-ifneq ($(TARGET_PREBUILT_HEADERS),true)
 ifeq ($(call is-vendor-board-platform,QCOM),true)
      common_deps += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
      kernel_includes += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
- endif
 endif
