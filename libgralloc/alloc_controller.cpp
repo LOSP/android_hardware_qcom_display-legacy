@@ -34,8 +34,9 @@
 #include "alloc_controller.h"
 #include "memalloc.h"
 #include "ionalloc.h"
+#ifdef USE_PMEM_CAMERA
 #include "pmemalloc.h"
-#include "ashmemalloc.h"
+#endif
 #include "gr.h"
 #include "comptype.h"
 
@@ -94,24 +95,19 @@ sp<IAllocController> IAllocController::sController = NULL;
 sp<IAllocController> IAllocController::getInstance(bool useMasterHeap)
 {
     if(sController == NULL) {
-#ifdef USE_ION
         sController = new IonController();
-#else
-        if(useMasterHeap)
-            sController = new PmemAshmemController();
-        else
-            sController = new PmemKernelController();
-#endif
     }
     return sController;
 }
 
-
-#ifdef USE_ION
 //-------------- IonController-----------------------//
 IonController::IonController()
 {
     mIonAlloc = new IonAlloc();
+#ifdef USE_PMEM_CAMERA
+    mPmemAlloc = new PmemAdspAlloc();
+    mPmemSmipoolAlloc = new PmemSmiAlloc();
+#endif
 }
 
 int IonController::allocate(alloc_data& data, int usage,
@@ -123,6 +119,18 @@ int IonController::allocate(alloc_data& data, int usage,
 
     data.uncached = useUncached(usage);
     data.allocType = 0;
+
+#ifdef USE_PMEM_CAMERA
+    if (usage & GRALLOC_USAGE_PRIVATE_ADSP_HEAP) {
+        data.allocType |= private_handle_t::PRIV_FLAGS_USES_PMEM_ADSP;
+        ret = mPmemAlloc->alloc_buffer(data);
+        return ret;
+    } else if (usage & GRALLOC_USAGE_PRIVATE_SMI_HEAP) {
+        data.allocType |= private_handle_t::PRIV_FLAGS_USES_PMEM_SMI;
+        ret = mPmemSmipoolAlloc->alloc_buffer(data);
+        return ret;
+    }
+#endif
 
     if(usage & GRALLOC_USAGE_PRIVATE_UI_CONTIG_HEAP)
         ionFlags |= ION_HEAP(ION_SF_HEAP_ID);
@@ -188,159 +196,22 @@ sp<IMemAlloc> IonController::getAllocator(int flags)
     sp<IMemAlloc> memalloc;
     if (flags & private_handle_t::PRIV_FLAGS_USES_ION) {
         memalloc = mIonAlloc;
+        //ALOGW("gralloc: memalloc is mIonAlloc (ION)\n");
+#ifdef USE_PMEM_CAMERA
+    } else if (flags & private_handle_t::PRIV_FLAGS_USES_PMEM_ADSP) {
+        memalloc = mPmemAlloc;
+        ALOGW("gralloc: memalloc is mPmemAlloc (PMEM ADSP)\n");
+    } else if (flags & private_handle_t::PRIV_FLAGS_USES_PMEM_SMI) {
+        memalloc = mPmemSmipoolAlloc;
+        ALOGW("gralloc: memalloc is mPmemSmipoolAlloc (PMEM SMI)\n");
+#endif
     } else {
         ALOGE("%s: Invalid flags passed: 0x%x", __FUNCTION__, flags);
     }
 
     return memalloc;
 }
-#endif
 
-//-------------- PmemKernelController-----------------------//
-//XXX: Remove - we're not using pmem anymore
-#ifndef USE_ION
-PmemKernelController::PmemKernelController()
-{
-    mPmemAdspAlloc = new PmemKernelAlloc(DEVICE_PMEM_ADSP);
-    // XXX: Right now, there is no need to maintain an instance
-    // of the SMI allocator as we need it only in a few cases
-}
-
-PmemKernelController::~PmemKernelController()
-{
-}
-
-int PmemKernelController::allocate(alloc_data& data, int usage,
-                                   int compositionType)
-{
-    int ret = 0;
-    bool adspFallback = false;
-    if (!(usage & GRALLOC_USAGE_PRIVATE_SMI_HEAP))
-        adspFallback = true;
-
-    // Try SMI first
-    if ((usage & GRALLOC_USAGE_PRIVATE_SMI_HEAP) ||
-        (usage & GRALLOC_USAGE_EXTERNAL_DISP)    ||
-        (usage & GRALLOC_USAGE_PROTECTED))
-    {
-        int tempFd = open(DEVICE_PMEM_SMIPOOL, O_RDWR, 0);
-        if(tempFd > 0) {
-            close(tempFd);
-            sp<IMemAlloc> memalloc;
-            memalloc = new PmemKernelAlloc(DEVICE_PMEM_SMIPOOL);
-            ret = memalloc->alloc_buffer(data);
-            if(ret >= 0)
-                return ret;
-            else {
-                if(adspFallback)
-                    ALOGW("Allocation from SMI failed, trying ADSP");
-            }
-        }
-    }
-
-    if ((usage & GRALLOC_USAGE_PRIVATE_ADSP_HEAP) || adspFallback) {
-        ret = mPmemAdspAlloc->alloc_buffer(data);
-    }
-    return ret;
-}
-
-sp<IMemAlloc> PmemKernelController::getAllocator(int flags)
-{
-    sp<IMemAlloc> memalloc;
-    if (flags & private_handle_t::PRIV_FLAGS_USES_PMEM_ADSP)
-        memalloc = mPmemAdspAlloc;
-    else {
-        ALOGE("%s: Invalid flags passed: 0x%x", __FUNCTION__, flags);
-        memalloc = NULL;
-    }
-
-    return memalloc;
-}
-
-//-------------- PmemAshmmemController-----------------------//
-
-PmemAshmemController::PmemAshmemController()
-{
-    mPmemUserspaceAlloc = new PmemUserspaceAlloc();
-    mAshmemAlloc = new AshmemAlloc();
-    mPmemKernelCtrl = new PmemKernelController();
-}
-
-PmemAshmemController::~PmemAshmemController()
-{
-}
-
-int PmemAshmemController::allocate(alloc_data& data, int usage,
-                                   int compositionType)
-{
-    int ret = 0;
-    data.allocType = 0;
-
-    // Make buffers cacheable by default
-    data.uncached = false;
-
-    // Override if we explicitly need uncached buffers
-    if (usage & GRALLOC_USAGE_PRIVATE_UNCACHED)
-        data.uncached = true;
-
-    // If ADSP or SMI is requested use the kernel controller
-    if(usage & (GRALLOC_USAGE_PRIVATE_ADSP_HEAP|
-                GRALLOC_USAGE_PRIVATE_SMI_HEAP)) {
-        ret = mPmemKernelCtrl->allocate(data, usage, compositionType);
-        if(ret < 0)
-            ALOGE("%s: Failed to allocate ADSP/SMI memory", __func__);
-        else
-            data.allocType = private_handle_t::PRIV_FLAGS_USES_PMEM_ADSP;
-        return ret;
-    }
-
-    if(usage & GRALLOC_USAGE_PRIVATE_SYSTEM_HEAP) {
-        ret = mAshmemAlloc->alloc_buffer(data);
-        if(ret >= 0) {
-            data.allocType = private_handle_t::PRIV_FLAGS_USES_ASHMEM;
-            data.allocType |= private_handle_t::PRIV_FLAGS_NONCONTIGUOUS_MEM;
-        }
-        return ret;
-    }
-
-    // if no memory specific flags are set,
-    // default to EBI heap, so that bypass
-    // can work. We can fall back to system
-    // heap if we run out.
-    ret = mPmemUserspaceAlloc->alloc_buffer(data);
-
-    // Fallback
-    if(ret >= 0 ) {
-        data.allocType = private_handle_t::PRIV_FLAGS_USES_PMEM;
-    } else if(ret < 0 && canFallback(usage, false)) {
-        ALOGW("Falling back to ashmem");
-        ret = mAshmemAlloc->alloc_buffer(data);
-        if(ret >= 0) {
-            data.allocType = private_handle_t::PRIV_FLAGS_USES_ASHMEM;
-            data.allocType |= private_handle_t::PRIV_FLAGS_NONCONTIGUOUS_MEM;
-        }
-    }
-
-    return ret;
-}
-
-sp<IMemAlloc> PmemAshmemController::getAllocator(int flags)
-{
-    sp<IMemAlloc> memalloc;
-    if (flags & private_handle_t::PRIV_FLAGS_USES_PMEM)
-        memalloc = mPmemUserspaceAlloc;
-    else if (flags & private_handle_t::PRIV_FLAGS_USES_PMEM_ADSP)
-        memalloc = mPmemKernelCtrl->getAllocator(flags);
-    else if (flags & private_handle_t::PRIV_FLAGS_USES_ASHMEM)
-        memalloc = mAshmemAlloc;
-    else {
-        ALOGE("%s: Invalid flags passed: 0x%x", __FUNCTION__, flags);
-        memalloc = NULL;
-    }
-
-    return memalloc;
-}
-#endif
 size_t getBufferSizeAndDimensions(int width, int height, int format,
                                   int& alignedw, int &alignedh)
 {

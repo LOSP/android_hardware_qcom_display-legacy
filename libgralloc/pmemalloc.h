@@ -30,23 +30,14 @@
 #ifndef GRALLOC_PMEMALLOC_H
 #define GRALLOC_PMEMALLOC_H
 
-#include <linux/ion.h>
-#include <utils/RefBase.h>
 #include "memalloc.h"
+#include "gr.h"
 
 namespace gralloc {
-class PmemUserspaceAlloc : public IMemAlloc  {
+
+class PmemAdspAlloc : public IMemAlloc  {
 
     public:
-    class Allocator: public android::RefBase {
-        public:
-        virtual ~Allocator() {};
-        virtual ssize_t setSize(size_t size) = 0;
-        virtual size_t  size() const = 0;
-        virtual ssize_t allocate(size_t size, uint32_t flags = 0) = 0;
-        virtual ssize_t deallocate(size_t offset) = 0;
-    };
-
     virtual int alloc_buffer(alloc_data& data);
 
     virtual int free_buffer(void *base, size_t size,
@@ -58,25 +49,11 @@ class PmemUserspaceAlloc : public IMemAlloc  {
     virtual int unmap_buffer(void *base, size_t size,
                              int offset);
 
-    virtual int clean_buffer(void*base, size_t size,
+    virtual int clean_buffer(void *base, size_t size,
                              int offset, int fd);
-
-    PmemUserspaceAlloc();
-
-    ~PmemUserspaceAlloc();
-
-    private:
-    int mMasterFd;
-    void* mMasterBase;
-    const char* mPmemDev;
-    android::sp<Allocator> mAllocator;
-    pthread_mutex_t mLock;
-    int init_pmem_area();
-    int init_pmem_area_locked();
-
 };
 
-class PmemKernelAlloc : public IMemAlloc  {
+class PmemSmiAlloc : public IMemAlloc  {
 
     public:
     virtual int alloc_buffer(alloc_data& data);
@@ -90,17 +67,10 @@ class PmemKernelAlloc : public IMemAlloc  {
     virtual int unmap_buffer(void *base, size_t size,
                              int offset);
 
-    virtual int clean_buffer(void*base, size_t size,
+    virtual int clean_buffer(void *base, size_t size,
                              int offset, int fd);
-
-    PmemKernelAlloc(const char* device);
-
-    ~PmemKernelAlloc();
-    private:
-    const char* mPmemDev;
-
-
 };
 
 }
+
 #endif /* GRALLOC_PMEMALLOC_H */

@@ -36,6 +36,10 @@ namespace gralloc {
 struct alloc_data;
 class IMemAlloc;
 class IonAlloc;
+#ifdef USE_PMEM_CAMERA
+class PmemAdspAlloc;
+class PmemSmiAlloc;
+#endif
 
 class IAllocController : public android::RefBase {
 
@@ -69,45 +73,10 @@ class IonController : public IAllocController {
 
     private:
     android::sp<IonAlloc> mIonAlloc;
-
-};
-
-class PmemKernelController : public IAllocController {
-
-    public:
-    virtual int allocate(alloc_data& data, int usage,
-                         int compositionType);
-
-    virtual android::sp<IMemAlloc> getAllocator(int flags);
-
-    PmemKernelController ();
-
-    ~PmemKernelController ();
-
-    private:
-    android::sp<IMemAlloc> mPmemAdspAlloc;
-
-};
-
-// Main pmem controller - this should only
-// be used within gralloc
-class PmemAshmemController : public IAllocController {
-
-    public:
-    virtual int allocate(alloc_data& data, int usage,
-                         int compositionType);
-
-    virtual android::sp<IMemAlloc> getAllocator(int flags);
-
-    PmemAshmemController();
-
-    ~PmemAshmemController();
-
-    private:
-    android::sp<IMemAlloc> mPmemUserspaceAlloc;
-    android::sp<IMemAlloc> mAshmemAlloc;
-    android::sp<IAllocController> mPmemKernelCtrl;
-
+#ifdef USE_PMEM_CAMERA
+    android::sp<PmemAdspAlloc> mPmemAlloc;
+    android::sp<PmemSmiAlloc> mPmemSmipoolAlloc;
+#endif
 };
 
 } //end namespace gralloc

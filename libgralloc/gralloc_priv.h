@@ -48,8 +48,10 @@ enum {
     GRALLOC_USAGE_PRIVATE_IOMMU_HEAP      =       0x01000000,
     /* MM heap is a carveout heap for video, can be secured*/
     GRALLOC_USAGE_PRIVATE_MM_HEAP         =       0x02000000,
-    /* WRITEBACK heap is a carveout heap for writeback, can be secured*/
-    GRALLOC_USAGE_PRIVATE_WRITEBACK_HEAP  =       0x04000000,
+
+    /* Buffer content should be displayed on an primary display only */
+    GRALLOC_USAGE_PRIVATE_INTERNAL_ONLY   =       0x04000000,
+
     /* CAMERA heap is a carveout heap for camera, is not secured*/
     GRALLOC_USAGE_PRIVATE_CAMERA_HEAP     =       0x08000000,
 
@@ -90,6 +92,12 @@ enum {
      * but still need to be protected from screen captures
      */
     GRALLOC_USAGE_PRIVATE_CP_BUFFER       =       0x00080000,
+
+    /* WRITEBACK heap is a carveout heap for writeback, can be secured*/
+    GRALLOC_USAGE_PRIVATE_WRITEBACK_HEAP  =       0x00001000,
+
+    /* This flag is used for SECURE display usecase */
+    GRALLOC_USAGE_PRIVATE_SECURE_DISPLAY  =       0x00002000,
 };
 
 enum {
@@ -101,9 +109,6 @@ enum {
 
 #define INTERLACE_MASK 0x80
 #define S3D_FORMAT_MASK 0xFF000
-#define DEVICE_PMEM "/dev/pmem"
-#define DEVICE_PMEM_ADSP "/dev/pmem_adsp"
-#define DEVICE_PMEM_SMIPOOL "/dev/pmem_smipool"
 /*****************************************************************************/
 enum {
     /* OEM specific HAL formats */
@@ -173,6 +178,7 @@ struct private_handle_t : public native_handle {
             PRIV_FLAGS_EXTERNAL_BLOCK     = 0x00004000,
             // Display this buffer on external as close caption
             PRIV_FLAGS_EXTERNAL_CC        = 0x00008000,
+            PRIV_FLAGS_USES_PMEM_SMI      = 0x00010000,
         };
 
         // file-descriptors
